@@ -5,6 +5,7 @@ node_modules/
 dist/
 
 # Local data & auth
+_tmp/
 store/
 data/
 logs/

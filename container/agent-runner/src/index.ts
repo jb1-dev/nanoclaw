@@ -143,7 +143,7 @@ function getSessionSummary(sessionId: string, transcriptPath: string): string | 
  * Archive the full transcript to conversations/ before compaction.
  */
 function createPreCompactHook(assistantName?: string): HookCallback {
-  return async (input, _toolUseId, _context) => {
+  return async (input: unknown, _toolUseId: unknown, _context: unknown) => {
     const preCompact = input as PreCompactHookInput;
     const transcriptPath = preCompact.transcript_path;
     const sessionId = preCompact.session_id;
@@ -324,6 +324,29 @@ function waitForIpcMessage(): Promise<string | null> {
 }
 
 /**
+ * Build an openclaw-style system prompt by reading SYSTEM.md and 
+ * appending workspace context files from disk at runtime.
+ */
+function buildSystemPrompt(groupDir: string): string | undefined {
+  const systemMdPath = path.join('/app/src', 'SYSTEM.md');
+  if (!fs.existsSync(systemMdPath)) {
+    return undefined;
+  }
+  let prompt = fs.readFileSync(systemMdPath, 'utf-8');
+
+  const contextFiles = ['SOUL.md', 'USER.md'];
+  for (const filename of contextFiles) {
+    const filePath = path.join(groupDir, filename);
+    if (fs.existsSync(filePath)) {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      prompt += `\n\n## ${filename}\n\n${content}`;
+    }
+  }
+
+  return prompt;
+}
+
+/**
  * Run a single query and stream results via writeOutput.
  * Uses MessageStream (AsyncIterable) to keep isSingleUserTurn=false,
  * allowing agent teams subagents to run to completion.
@@ -366,11 +389,14 @@ async function runQuery(
   let messageCount = 0;
   let resultCount = 0;
 
-  // Load global CLAUDE.md as additional system context (shared across all groups)
-  const globalClaudeMdPath = '/workspace/global/CLAUDE.md';
-  let globalClaudeMd: string | undefined;
-  if (!containerInput.isMain && fs.existsSync(globalClaudeMdPath)) {
-    globalClaudeMd = fs.readFileSync(globalClaudeMdPath, 'utf-8');
+  // Build system prompt from SYSTEM.md + workspace files
+  // read fresh from disk each session so agent updates are reflected.
+  const groupDir = '/workspace/group';
+  let systemPromptConfig: string | { type: 'preset'; preset: 'claude_code' } | undefined;
+  if (containerInput.isMain) {
+    systemPromptConfig = buildSystemPrompt(groupDir);
+  } else {
+    systemPromptConfig = { type: 'preset' as const, preset: 'claude_code' as const };
   }
 
   // Discover additional directories mounted at /workspace/extra/*
@@ -396,9 +422,7 @@ async function runQuery(
       additionalDirectories: extraDirs.length > 0 ? extraDirs : undefined,
       resume: sessionId,
       resumeSessionAt: resumeAt,
-      systemPrompt: globalClaudeMd
-        ? { type: 'preset' as const, preset: 'claude_code' as const, append: globalClaudeMd }
-        : undefined,
+      systemPrompt: systemPromptConfig || undefined,
       allowedTools: [
         'Bash',
         'Read', 'Write', 'Edit', 'Glob', 'Grep',

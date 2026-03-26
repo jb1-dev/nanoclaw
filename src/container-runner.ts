@@ -193,6 +193,12 @@ function buildVolumeMounts(
   if (!fs.existsSync(groupAgentRunnerDir) && fs.existsSync(agentRunnerSrc)) {
     fs.cpSync(agentRunnerSrc, groupAgentRunnerDir, { recursive: true });
   }
+
+  // Sync SYSTEM.md into per-group agent-runner on every run (host copy wins)
+  const systemMdSrc = path.join(agentRunnerSrc, 'SYSTEM.md');
+  if (fs.existsSync(systemMdSrc) && fs.existsSync(groupAgentRunnerDir)) {
+    fs.cpSync(systemMdSrc, path.join(groupAgentRunnerDir, 'SYSTEM.md'));
+  }
   mounts.push({
     hostPath: groupAgentRunnerDir,
     containerPath: '/app/src',
